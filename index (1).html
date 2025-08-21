@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Turbo Turf Trimmer</title>
+  <style>
+    :root { --bg:#0b1b0f; --ui: rgba(255,255,255,0.9); --accent:#2fe06f; }
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;color:#fff}
+    #game{display:block;width:100vw;height:100vh;touch-action:none}
+    .hud{position:fixed;inset:16px auto auto 16px;z-index:10;display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:rgba(0,0,0,.35);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+    .pill{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.1);font-weight:600}
+    .btn{-webkit-tap-highlight-color:transparent;cursor:pointer;border:0;border-radius:10px;padding:8px 12px;font-weight:700;background:#111;color:#fff;outline:1px solid rgba(255,255,255,.16)}
+    .btn:hover{outline-color:rgba(255,255,255,.36)}
+    .help{position:fixed;right:16px;bottom:16px;z-index:10;max-width:420px;line-height:1.35;font-size:14px;color:rgba(255,255,255,.9);background:rgba(0,0,0,.35);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px 14px}
+    .help kbd{background:#111;color:#fff;border-radius:6px;padding:2px 6px;border:1px solid rgba(255,255,255,.2)}
+    .stick{position:fixed;left:16px;bottom:16px;width:120px;height:120px;z-index:9;border-radius:50%;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.12);touch-action:none}
+    .stick .nub{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.6);mix-blend-mode:screen;box-shadow:0 8px 24px rgba(0,0,0,.35);pointer-events:none}
+    /* Retro intro */
+    .intro{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:20;background:radial-gradient(1200px 800px at 50% 50%, rgba(15,40,20,.95), rgba(6,18,10,.98));text-align:center}
+    .title{font-family:"Courier New",monospace;font-weight:800;letter-spacing:2px;text-transform:uppercase;font-size:clamp(28px,6vw,72px);text-shadow:0 0 6px #1aff7a,0 0 18px #0aff52,2px 2px 0 #000;margin:0 0 10px 0}
+    .subtitle{font-family:"Courier New",monospace;color:#bfffd6;opacity:.9;margin-bottom:24px}
+    .credit{opacity:.7;font-size:12px;margin-top:24px;font-family:"Courier New",monospace}
+    /* Win modal */
+    .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:30;background:rgba(0,0,0,.55);backdrop-filter:blur(3px)}
+    .modal.show{display:flex}
+    .card{background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:18px;min-width:280px;text-align:center;box-shadow:0 12px 36px rgba(0,0,0,.45)}
+    .card h2{margin:0 0 6px 0}
+    .bestlist{list-style:none;margin:8px 0 0 0;padding:0;font-variant-numeric:tabular-nums;text-align:left}
+    .bestlist li{display:flex;justify-content:space-between;padding:2px 0}
+    /* Score sidebar */
+    .sidebar{position:fixed;top:16px;right:16px;z-index:10;background:rgba(0,0,0,.35);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;min-width:180px}
+    .sidebar h4{margin:0 0 6px 0;font-size:14px;opacity:.9}
+    .time{font-variant-numeric:tabular-nums;font-weight:700}
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div class="hud">
+    <div class="pill">Cut: <span id="pct">0</span>%</div>
+    <div class="pill">Time: <span id="time">00:00.0</span></div>
+    <button class="btn" id="reset">Reset (R)</button>
+    <button class="btn" id="fullscreen">Fullscreen (F)</button>
+  </div>
+
+  <div class="help">
+    <strong>How to play:</strong> Arrow keys / WASD to drive. On touch, use the left joystick or drag.
+    Press <kbd>Enter</kbd> or click <em>Start</em> to begin. Mow everything!<br>
+    Pro-tip: diagonal lines and tight spirals cut faster.
+  </div>
+
+  <div class="stick" id="stick" aria-hidden="true"><div class="nub" id="nub"></div></div>
+
+  <!-- Intro overlay -->
+  <div class="intro" id="intro">
+    <h1 class="title">Turbo Turf Trimmer</h1>
+    <div class="subtitle">1993 — <span style="color:#2fe06f">Arcade Mode</span></div>
+    <button class="btn" id="startBtn">▶ Start</button>
+    <div class="credit">Use WASD / Arrows · Touch joystick on mobile</div>
+  </div>
+
+  <!-- Score sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <h4>Best Times</h4>
+    <ol class="bestlist" id="bestList"></ol>
+  </aside>
+
+  <!-- Win modal -->
+  <div class="modal" id="winModal">
+    <div class="card">
+      <h2>Good job! 🌱</h2>
+      <div>All grass cut in <strong class="time" id="finalTime">00:00.0</strong></div>
+      <div style="margin-top:10px; display:flex; gap:8px; justify-content:center;">
+        <button class="btn" id="againBtn">Restart</button>
+        <button class="btn" id="closeModalBtn">Close</button>
+      </div>
+      <div style="margin-top:10px; font-size:12px; opacity:0.8;">Your time is saved in Best Times</div>
+    </div>
+  </div>
+
+<script>
+(()=>{
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const pctEl = document.getElementById('pct');
+  const timeEl = document.getElementById('time');
+  const winModal = document.getElementById('winModal');
+  const finalTimeEl = document.getElementById('finalTime');
+  const bestListEl = document.getElementById('bestList');
+  const intro = document.getElementById('intro');
+  const startBtn = document.getElementById('startBtn');
+  const againBtn = document.getElementById('againBtn');
+  const closeModalBtn = document.getElementById('closeModalBtn');
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+  // Field/grid
+  let W=0, H=0, cols=0, rows=0, cell=8, total=0, cutCount=0;
+  let cut;     // 0=uncut, 1=cut
+  let shade;   // visual variation
+  let cutAge;  // 0..1 flash on fresh cut
+  let blocked; // 1=house area (not mowable)
+  let grassTotal=0; // only mowable cells
+  let house = {x:0,y:0,w:0,h:0};
+
+  // Game state
+  let state = 'intro';
+  let tStart = 0; // performance.now at start
+  let elapsed = 0;
+  const BEST_KEY = 'mower_best_times_v1';
+
+  // Mower & character
+  const mower = { x:0, y:0, dir:0, speed:260, radius:24, vx:0, vy:0 };
+
+  // Input state
+  const keys = new Set();
+  let pointerTarget = null; // {x,y}
+
+  const stick = document.getElementById('stick');
+  const nub = document.getElementById('nub');
+  let stickActive=false, stickVec={x:0,y:0};
+
+  function resize(reset=true){
+    W = Math.floor(window.innerWidth);
+    H = Math.floor(window.innerHeight);
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cols = Math.ceil(W / cell);
+    rows = Math.ceil(H / cell);
+    total = cols * rows;
+    if (reset) initField();
+  }
+  function idx(cx,cy){ return cx + cy * cols; }
+
+  function initField(){
+    cutCount = 0;
+    cut = new Uint8Array(total);
+    shade = new Float32Array(total);
+    cutAge = new Float32Array(total);
+    blocked = new Uint8Array(total);
+
+    // House near top-center
+    house.w = Math.max(180, Math.floor(W*0.18));
+    house.h = Math.max(120, Math.floor(H*0.16));
+    house.x = Math.floor(W*0.5 - house.w/2);
+    house.y = Math.floor(H*0.16);
+
+    for(let y=0;y<rows;y++){
+      for(let x=0;x<cols;x++){
+        const i=idx(x,y);
+        const cx = x*cell + cell*0.5;
+        const cy = y*cell + cell*0.5;
+        shade[i] = Math.random();
+        cutAge[i] = 0;
+        // mark house area as blocked (not mowable)
+        if (cx>house.x && cx<house.x+house.w && cy>house.y && cy<house.y+house.h) blocked[i]=1;
+      }
+    }
+    grassTotal = 0; for(let i=0;i<total;i++) if(!blocked[i]) grassTotal++;
+
+    mower.x=W*0.5; mower.y=Math.max(house.y+house.h+60, H*0.5); mower.vx=0; mower.vy=0; mower.dir=0;
+    updatePercent(); updateTime(0);
+  }
+
+  function updatePercent(){
+    const pct = grassTotal ? Math.round((cutCount/grassTotal)*100) : 0;
+    pctEl.textContent = String(pct);
+  }
+  function updateTime(ms){
+    const s = ms/1000; const m = Math.floor(s/60); const sec = Math.floor(s%60); const d = Math.floor((s - Math.floor(s)) * 10);
+    timeEl.textContent = `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}.${d}`;
+  }
+  function handleCut(cx,cy){
+    if (cx<0||cy<0||cx>=cols||cy>=rows) return;
+    const i = idx(cx,cy);
+    if (blocked[i]) return; // not mowable
+    if (!cut[i]){ cut[i]=1; cutCount++; cutAge[i]=1; if (cutCount===grassTotal) onAllCut(); }
+  }
+  function cutUnderMower(){
+    const r=mower.radius; const r2=r*r;
+    const minx=Math.max(0, Math.floor((mower.x-r)/cell));
+    const maxx=Math.min(cols-1, Math.floor((mower.x+r)/cell));
+    const miny=Math.max(0, Math.floor((mower.y-r)/cell));
+    const maxy=Math.min(rows-1, Math.floor((mower.y+r)/cell));
+    for(let y=miny;y<=maxy;y++){
+      for(let x=minx;x<=maxx;x++){
+        const cx=x*cell+cell*0.5, cy=y*cell+cell*0.5;
+        const dx=cx-mower.x, dy=cy-mower.y;
+        if (dx*dx+dy*dy<=r2) handleCut(x,y);
+      }
+    }
+  }
+
+  function drawField(){
+    for(let y=0;y<rows;y++){
+      for(let x=0;x<cols;x++){
+        const i=idx(x,y), s=shade[i];
+        if (!cut[i]){
+          const g=135+Math.floor(s*70); ctx.fillStyle=`rgb(${10+Math.floor(s*10)},${g},${30+Math.floor(s*20)})`;
+        } else {
+          if (cutAge[i] > 0){ ctx.fillStyle = `rgba(255,255,120,${cutAge[i]})`; cutAge[i] = Math.max(0, cutAge[i]-0.05); }
+          else { const g=170+Math.floor(s*60); ctx.fillStyle=`rgb(${20+Math.floor(s*15)},${g},${40+Math.floor(s*25)})`; }
+        }
+        ctx.fillRect(x*cell, y*cell, cell, cell);
+      }
+    }
+  }
+
+  function drawHouse(){
+    ctx.fillStyle = '#cfc1a1';
+    ctx.fillRect(house.x, house.y, house.w, house.h);
+    ctx.beginPath();
+    ctx.moveTo(house.x-8, house.y);
+    ctx.lineTo(house.x + house.w/2, house.y - Math.min(80, house.h*0.6));
+    ctx.lineTo(house.x + house.w+8, house.y);
+    ctx.closePath();
+    ctx.fillStyle = '#7a3b1d'; ctx.fill();
+    // Door & windows
+    const doorW=Math.max(24, Math.floor(house.w*0.14)), doorH=Math.max(44, Math.floor(house.h*0.5));
+    const doorX=house.x + Math.floor(house.w*0.5) - doorW/2, doorY=house.y + house.h - doorH;
+    ctx.fillStyle='#56351e'; ctx.fillRect(doorX,doorY,doorW,doorH);
+    ctx.fillStyle='#9ed9ff';
+    const pad=Math.floor(house.w*0.08), winW=Math.max(22,Math.floor(house.w*0.2)), winH=Math.max(18,Math.floor(house.h*0.24));
+    ctx.fillRect(house.x+pad, house.y+pad, winW, winH);
+    ctx.fillRect(house.x+house.w-pad-winW, house.y+pad, winW, winH);
+  }
+
+  function drawGuy(){
+    const back = 22;
+    const px = mower.x - Math.cos(mower.dir||0)*back;
+    const py = mower.y - Math.sin(mower.dir||0)*back;
+    ctx.save(); ctx.translate(px, py); ctx.rotate(mower.dir||0);
+    // Handle bar to mower
+    ctx.strokeStyle = 'rgba(200,200,200,0.9)'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,-8); ctx.lineTo(back,-6); ctx.stroke();
+    // Body
+    ctx.fillStyle = '#3aa7ff'; ctx.fillRect(-6,-14,12,18); // torso
+    ctx.fillStyle = '#222'; ctx.fillRect(-6,4,5,10); ctx.fillRect(1,4,5,10); // legs
+    ctx.fillStyle = '#f5d7b1'; ctx.beginPath(); ctx.arc(0,-20,6,0,Math.PI*2); ctx.fill(); // head
+    ctx.restore();
+  }
+
+  function drawMower(){
+    const w=44,h=28; ctx.save(); ctx.translate(mower.x,mower.y);
+    const ang=Math.atan2(mower.vy,mower.vx); if(mower.vx||mower.vy) mower.dir=ang; ctx.rotate(mower.dir);
+    ctx.fillStyle='rgba(255,255,255,0.08)'; ctx.beginPath(); ctx.arc(0,0,mower.radius,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#222'; ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=2; roundRect(ctx,-w/2,-h/2,w,h,6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#ff4d4d'; roundRect(ctx,-w*0.15,-h*0.42,w*0.55,h*0.35,6); ctx.fill();
+    ctx.strokeStyle='#bbb'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(-w*0.4,-h*0.3); ctx.lineTo(-w*0.9,-h*0.9); ctx.moveTo(-w*0.25,-h*0.3); ctx.lineTo(-w*0.75,-h*0.9); ctx.stroke();
+    ctx.restore();
+  }
+  function roundRect(ctx,x,y,w,h,r){ const rr=Math.min(r,w/2,h/2); ctx.beginPath(); ctx.moveTo(x+rr,y); ctx.arcTo(x+w,y,x+w,y+h,rr); ctx.arcTo(x+w,y+h,x,y+h,rr); ctx.arcTo(x,y+h,x,y,rr); ctx.arcTo(x,y,x+w,y,rr); ctx.closePath(); }
+
+  // Input handling
+  window.addEventListener('keydown', e=>{
+    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+    const k=e.key.toLowerCase(); keys.add(k);
+    if (k==='f') toggleFullscreen();
+    if (k==='r') { state='playing'; tStart=performance.now(); elapsed=0; initField(); hideIntro(); hideWin(); }
+    if (k==='enter' && state==='intro') startGame();
+  });
+  window.addEventListener('keyup', e=>{ keys.delete(e.key.toLowerCase()); });
+
+  // Pointer
+  canvas.addEventListener('pointerdown', e=>{ canvas.setPointerCapture(e.pointerId); pointerTarget=getPt(e); });
+  canvas.addEventListener('pointermove', e=>{ if(pointerTarget) pointerTarget=getPt(e); });
+  canvas.addEventListener('pointerup', e=>{ pointerTarget=null; });
+  function getPt(e){ const rect=canvas.getBoundingClientRect(); return { x:e.clientX-rect.left, y:e.clientY-rect.top }; }
+
+  // Virtual stick
+  stick?.addEventListener('pointerdown', e=>{ stickActive=true; stick.setPointerCapture(e.pointerId); moveNub(e); });
+  stick?.addEventListener('pointermove', e=>{ if(stickActive) moveNub(e); });
+  stick?.addEventListener('pointerup', e=>{ stickActive=false; stickVec.x=stickVec.y=0; nub.style.left='50%'; nub.style.top='50%'; });
+  function moveNub(e){ const r=60; const rect=stick.getBoundingClientRect(); const x=e.clientX-rect.left-r; const y=e.clientY-rect.top-r; const len=Math.hypot(x,y)||1; const max=40; const nx=(x/len)*Math.min(len,max); const ny=(y/len)*Math.min(len,max); nub.style.left=(r+nx)+'px'; nub.style.top=(r+ny)+'px'; stickVec.x=x/r; stickVec.y=y/r; }
+
+  function toggleFullscreen(){ if(!document.fullscreenElement){ document.documentElement.requestFullscreen?.(); } else { document.exitFullscreen?.(); } }
+  document.getElementById('fullscreen').addEventListener('click', toggleFullscreen);
+  document.getElementById('reset').addEventListener('click', ()=>{ state='playing'; tStart=performance.now(); elapsed=0; initField(); hideIntro(); hideWin(); });
+
+  window.addEventListener('resize', ()=>resize(true));
+  resize(true);
+
+  // Intro & modal controls
+  startBtn.addEventListener('click', startGame);
+  againBtn.addEventListener('click', ()=>{ hideWin(); startGame(); });
+  closeModalBtn.addEventListener('click', hideWin);
+
+  function startGame(){ hideIntro(); hideWin(); state='playing'; elapsed=0; tStart=performance.now(); initField(); }
+  function hideIntro(){ intro.style.display='none'; }
+  function showIntro(){ intro.style.display='flex'; }
+  function hideWin(){ winModal.classList.remove('show'); }
+  function showWin(){ winModal.classList.add('show'); }
+
+  function onAllCut(){ if(state!=='playing') return; state='won'; finalTimeEl.textContent=timeEl.textContent; saveBest(elapsed); renderBest(); showWin(); }
+
+  function saveBest(ms){ try{ const arr=JSON.parse(localStorage.getItem(BEST_KEY)||'[]'); arr.push(ms); arr.sort((a,b)=>a-b); localStorage.setItem(BEST_KEY, JSON.stringify(arr.slice(0,5))); }catch(e){} }
+  function renderBest(){ try{ const arr=JSON.parse(localStorage.getItem(BEST_KEY)||'[]'); bestListEl.innerHTML = arr.length? arr.map((ms,i)=>`<li><span>#${i+1}</span><span class='time'>${fmt(ms)}</span></li>`).join('') : '<li>No times yet</li>'; }catch{ bestListEl.innerHTML='<li>No times yet</li>'; } }
+  function fmt(ms){ const s=ms/1000; const m=Math.floor(s/60); const sec=Math.floor(s%60); const d=Math.floor((s-Math.floor(s))*10); return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}.${d}`; }
+  renderBest();
+
+  // Main loop
+  let last = performance.now();
+  let frameDt = 0;
+  function loop(now){
+    const dt = Math.min(0.033, (now-last)/1000); last = now; frameDt = dt;
+
+    if (state==='playing'){ elapsed = now - tStart; updateTime(elapsed); }
+
+    // Input
+    let ax=0, ay=0;
+    if (keys.has('arrowup')||keys.has('w')) ay -= 1;
+    if (keys.has('arrowdown')||keys.has('s')) ay += 1;
+    if (keys.has('arrowleft')||keys.has('a')) ax -= 1;
+    if (keys.has('arrowright')||keys.has('d')) ax += 1;
+    if (Math.hypot(stickVec.x, stickVec.y) > 0.05){ ax = stickVec.x; ay = stickVec.y; }
+    if (!ax && !ay && pointerTarget){ const dx=pointerTarget.x-mower.x; const dy=pointerTarget.y-mower.y; const L=Math.hypot(dx,dy); if(L>4){ ax=dx/L; ay=dy/L; }}
+
+    const L = Math.hypot(ax,ay);
+    if (L>0 && state!=='intro'){ mower.vx=(ax/L)*mower.speed; mower.vy=(ay/L)*mower.speed; }
+    else { mower.vx*=0.9; mower.vy*=0.9; if(Math.hypot(mower.vx,mower.vy)<5){ mower.vx=mower.vy=0; } }
+
+    const prevX=mower.x, prevY=mower.y;
+    mower.x += mower.vx * dt; mower.y += mower.vy * dt;
+    if (mower.x < 0) mower.x = 0; if (mower.x > W) mower.x = W;
+    if (mower.y < 0) mower.y = 0; if (mower.y > H) mower.y = H;
+    // Collision with house
+    if (mower.x>house.x && mower.x<house.x+house.w && mower.y>house.y && mower.y<house.y+house.h){ mower.x=prevX; mower.y=prevY; }
+
+    if (state!=='intro') cutUnderMower();
+
+    // Draw
+    drawField();
+    drawHouse();
+    drawGuy();
+    drawMower();
+
+    if ((now|0)%8===0) updatePercent();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
