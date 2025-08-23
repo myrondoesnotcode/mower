@@ -38,8 +38,13 @@
     .time{font-variant-numeric:tabular-nums;font-weight:700}
     /* Mobile fix: bump help box up when joystick is present */
     .touch .help { bottom: 152px; }
+
+    /* Mobile placement */
     @media (max-width: 768px) {
       .sidebar { top: auto; bottom: 12px; right: 12px; left: auto; }
+      /* Hide Best Times by default on mobile */
+      .sidebar { display:none; }
+      .sidebar.show { display:block; }
     }
     .touch .sidebar { top: auto; bottom: calc(152px + 8px); right: 16px; left: auto; }
 
@@ -75,7 +80,8 @@
       box-shadow:0 8px 24px rgba(0,0,0,.35);
     }
     .touch #helpToggle{ bottom:16px; right:16px; }
-  /* Best Times toggle button */
+
+    /* Best Times toggle button */
     #bestToggle{
       position:fixed;
       right:16px;
@@ -92,16 +98,13 @@
       box-shadow:0 8px 24px rgba(0,0,0,.35);
     }
     .touch #bestToggle{ right:16px; bottom:58px; }
-
-    /* On mobile: hide sidebar by default; show only when .show is set */
-    @media (max-width: 768px) {
-      .sidebar{ display:none; }
-      .sidebar.show{ display:block; }
-    }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
+
+  <!-- Background music (place your file next to this HTML; rename src as needed) -->
+  <audio id="bgm" src="retro.mp3" preload="auto" loop playsinline></audio>
 
   <div class="hud">
     <div class="pill">Cut: <span id="pct">0</span>%</div>
@@ -110,15 +113,16 @@
     <button class="btn" id="reset">Reset (R)</button>
     <button class="btn" id="fullscreen">Fullscreen (F)</button>
     <button class="btn" id="contrast">High Contrast: On</button>
+    <button class="btn" id="musicToggle">Music: On</button>
   </div>
 
   <div class="help">
     <strong>How to play:</strong> Arrow keys / WASD to drive. On touch, use the left joystick or drag.
-    Press <kbd>Enter</kbd> or click <em>Start</em> to begin. Mow everything before time runs out!<br>
+    Press <kbd>Enter</kbd> or click <em>Start</em> to begin. Mow everything before time runs out! Press <kbd>M</kbd> to mute/unmute music.<br>
     Pro-tip: diagonal lines and tight spirals cut faster.
   </div>
   <button class="btn" id="helpToggle" aria-label="Toggle help">?</button>
-<button class="btn" id="bestToggle" aria-label="Toggle best times" title="Best Times">🏁</button>
+  <button class="btn" id="bestToggle" aria-label="Toggle best times" title="Best Times">🏁</button>
 
   <div class="stick" id="stick" aria-hidden="true"><div class="nub" id="nub"></div></div>
 
@@ -134,7 +138,7 @@
     </div>
 
     <button class="btn" id="startBtn">▶ Start</button>
-    <div class="credit">Use WASD / Arrows · Touch joystick on mobile</div>
+    <div class="credit">Use WASD / Arrows · Touch joystick on mobile · Press M to mute music</div>
   </div>
 
   <!-- Score sidebar -->
@@ -187,9 +191,11 @@
   const closeModalBtn = document.getElementById('closeModalBtn');
   const closeFailBtn = document.getElementById('closeFailBtn');
   const contrastBtn = document.getElementById('contrast');
-  const bestToggle = document.getElementById('bestToggle');
-
+  const musicToggle = document.getElementById('musicToggle');
+  const bgm = document.getElementById('bgm');
   const modeBar = document.getElementById('modeBar');
+  const bestToggle = document.getElementById('bestToggle');
+  const sidebar = document.getElementById('sidebar');
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 
   // Help auto-hide and toggle (min 10s visible)
@@ -208,6 +214,14 @@
   // Detect touch device and add class
   const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   if (isTouch) document.body.classList.add('touch');
+
+  // Best Times mobile toggle
+  function hideBest(){ sidebar.classList.remove('show'); }
+  function showBest(){ sidebar.classList.add('show'); }
+  if (isTouch || window.innerWidth <= 768){ hideBest(); }
+  bestToggle.addEventListener('click', ()=>{
+    if (sidebar.classList.contains('show')) hideBest(); else showBest();
+  });
 
   // Field/grid
   let W=0, H=0, cols=0, rows=0, cell=8, total=0, cutCount=0;
@@ -242,6 +256,15 @@
   let countdownMs = MODES[mode].timeMs;
   let remainingMs = countdownMs;
 
+  // Music settings
+  const MUSIC_KEY = 'mower_music_enabled_v1';
+  const MUSIC_VOL_KEY = 'mower_music_vol_v1';
+  let musicEnabled = JSON.parse(localStorage.getItem(MUSIC_KEY) || 'true');
+  let musicVol = parseFloat(localStorage.getItem(MUSIC_VOL_KEY) || '0.35');
+  bgm.volume = Math.max(0, Math.min(1, musicVol));
+  function setMusicBtn(){ musicToggle.textContent = 'Music: ' + (musicEnabled ? 'On' : 'Off'); }
+  setMusicBtn();
+
   // Input state
   const keys = new Set();
   let pointerTarget = null; // {x,y}
@@ -250,7 +273,7 @@
   const nub = document.getElementById('nub');
   let stickActive=false, stickVec={x:0,y:0};
 
-  // Mode UI
+  // Mode UI persist/selection
   modeBar.querySelectorAll('.modebtn').forEach(btn=>{
     btn.classList.toggle('active', btn.dataset.mode === mode);
     btn.addEventListener('click', ()=>{
@@ -434,6 +457,7 @@
     const k=e.key.toLowerCase(); keys.add(k);
     if (k==='f') toggleFullscreen();
     if (k==='r') { state='intro'; hideWin(); hideFail(); showIntro(); hideBest(); }
+    if (k==='m'){ if (musicEnabled) disableMusic(); else enableMusic(); }
     if (k==='enter' && state==='intro') startGame();
   });
   window.addEventListener('keyup', e=>{ keys.delete(e.key.toLowerCase()); });
@@ -445,6 +469,9 @@
   function getPt(e){ const rect=canvas.getBoundingClientRect(); return { x:e.clientX-rect.left, y:e.clientY-rect.top }; }
 
   // Virtual stick
+  const stick = document.getElementById('stick');
+  const nub = document.getElementById('nub');
+  let stickActive=false;
   stick?.addEventListener('pointerdown', e=>{ stickActive=true; stick.setPointerCapture(e.pointerId); moveNub(e); });
   stick?.addEventListener('pointermove', e=>{ if(stickActive) moveNub(e); });
   stick?.addEventListener('pointerup', e=>{ stickActive=false; stickVec.x=stickVec.y=0; nub.style.left='50%'; nub.style.top='50%'; });
@@ -460,35 +487,46 @@
     contrastBtn.textContent = 'High Contrast: ' + (highContrast ? 'On' : 'Off');
   });
 
-  window.addEventListener('resize', ()=>resize(true));
-
-  // Best Times mobile toggle
-  const sidebar = document.getElementById('sidebar');
-  function hideBest(){ sidebar.classList.remove('show'); }
-  function showBest(){ sidebar.classList.add('show'); }
-
-  // Default: hide on touch/mobile
-  if (isTouch || window.innerWidth <= 768){ hideBest(); }
-
-  bestToggle.addEventListener('click', ()=>{
-    if (sidebar.classList.contains('show')) hideBest(); else showBest();
+  // --- Music controls ---
+  function fadeAudio(target, ms=500){
+    const start = bgm.volume;
+    const delta = target - start;
+    const steps = Math.max(1, Math.floor(ms/30));
+    let i = 0;
+    if (bgm._fadeTimer) clearInterval(bgm._fadeTimer);
+    bgm._fadeTimer = setInterval(()=>{
+      i++;
+      const v = start + delta * (i/steps);
+      bgm.volume = Math.max(0, Math.min(1, v));
+      if (i>=steps){ clearInterval(bgm._fadeTimer); bgm._fadeTimer=null; }
+    }, 30);
+  }
+  function enableMusic(){
+    musicEnabled = true;
+    localStorage.setItem(MUSIC_KEY, 'true');
+    setMusicBtn();
+    try { bgm.play().then(()=>fadeAudio(musicVol, 350)).catch(()=>{}); } catch(e){}
+  }
+  function disableMusic(){
+    musicEnabled = false;
+    localStorage.setItem(MUSIC_KEY, 'false');
+    setMusicBtn();
+    fadeAudio(0.0, 250);
+    setTimeout(()=>{ try{ bgm.pause(); }catch(e){} }, 260);
+  }
+  musicToggle.addEventListener('click', ()=>{
+    if (musicEnabled) disableMusic(); else enableMusic();
+  });
+  document.addEventListener('visibilitychange', ()=>{
+    if (document.hidden){ try{ bgm.pause(); }catch(e){} }
+    else {
+      if (state==='playing' && musicEnabled){
+        try{ bgm.play().catch(()=>{}); }catch(e){}
+      }
+    }
   });
 
-  // Also hide Best Times automatically after 6s on mobile when shown
-  let bestAutoHideTimer = null;
-  function autoHideBestSoon(){
-    if (!(isTouch || window.innerWidth <= 768)) return;
-    if (bestAutoHideTimer) clearTimeout(bestAutoHideTimer);
-    bestAutoHideTimer = setTimeout(()=>{ hideBest(); }, 6000);
-  }
-
-  // When we show win/fail modals, we may want to briefly show, then auto-hide
-  const _origShowWin = showWin;
-  showWin = function(){ _origShowWin(); if (isTouch || window.innerWidth <= 768){ showBest(); autoHideBestSoon(); } };
-
-  const _origShowFail = showFail;
-  showFail = function(){ _origShowFail(); if (isTouch || window.innerWidth <= 768){ showBest(); autoHideBestSoon(); } };
-
+  window.addEventListener('resize', ()=>resize(true));
   resize(true);
 
   // Intro & modal controls
@@ -501,13 +539,14 @@
   function startGame(){
     hideIntro(); hideWin(); hideFail();
     state='playing'; elapsed=0; tStart=performance.now(); initField();
+    if (musicEnabled) { try { bgm.currentTime = 0; bgm.play().then(()=>fadeAudio(musicVol, 350)).catch(()=>{}); } catch(e){} }
   }
   function hideIntro(){ intro.style.display='none'; }
-  function showIntro(){ intro.style.display='flex'; }
+  function showIntro(){ intro.style.display='flex'; try{ bgm.pause(); }catch(e){} }
   function hideWin(){ winModal.classList.remove('show'); }
-  function showWin(){ winModal.classList.add('show'); }
+  function showWin(){ winModal.classList.add('show'); if (musicEnabled) fadeAudio(Math.max(0.15, musicVol*0.6), 250); }
   function hideFail(){ failModal.classList.remove('show'); }
-  function showFail(){ failModal.classList.add('show'); }
+  function showFail(){ failModal.classList.add('show'); if (musicEnabled) fadeAudio(Math.max(0.10, musicVol*0.5), 250); }
 
   function onAllCut(){
     if(state!=='playing') return;
